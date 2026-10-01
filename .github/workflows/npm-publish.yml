@@ -1,0 +1,100 @@
+name: Publish Package
+
+# Tag-triggered, like the three packages this one wraps. Publishing is done by
+# CI rather than from a laptop for three reasons:
+#
+#   - provenance: npm attaches the build source and commit to the published
+#     tarball, which is what makes a consumer's `npm audit signatures` meaningful;
+#   - no long-lived npm token exists anywhere, so there is nothing to leak or
+#     rotate;
+#   - it is the only path that can run `npm ci`. The three step packages are
+#     pinned to exact versions, so installing them requires a lockfile, and the
+#     lockfile has to resolve from the registry.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  # Required for OIDC trusted publishing. npm's docs are explicit that no
+  # registry token is needed when this is present.
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          # Node 24, matching the Dockerfile and the other three repositories.
+          node-version: '24'
+          # Never cache in a release build: a stale node_modules or browser is a
+          # stale-artifact source, and this is the job that decides what ships.
+          package-manager-cache: false
+
+      # A mis-tagged release would publish the wrong version under a misleading
+      # tag name, and the mistake is only visible after it is on the registry.
+      - name: Verify tag matches package.json version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${PKG_VERSION}"
+            exit 1
+          fi
+          echo "Publishing $PKG_VERSION from tag ${GITHUB_REF_NAME}"
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm test
+
+      # test/wiring.test.js asserts the installed tree is the shape this package
+      # promises - one Playwright, one Chromium revision - so a dependency change
+      # that reintroduces the drift fails here rather than on a user's machine.
+
+      # npm tarballs are immutable and public forever, so the contents are
+      # checked before they leave. Belt-and-braces with test/publish.test.js.
+      - name: Verify the tarball is what a consumer expects
+        run: |
+          PACK_JSON="$(mktemp)"
+          npm pack --dry-run --json > "$PACK_JSON"
+          node -e "
+            const fs = require('fs');
+            const files = JSON.parse(fs.readFileSync('$PACK_JSON', 'utf8'))[0].files.map(f => f.path);
+            const leaked = files.filter(f =>
+              /(^|\/)tests?\//.test(f) ||
+              /^\.github\//.test(f) ||
+              /(^|\/)(Dockerfile|compose\.ya?ml|start-container\.sh|entrypoint\.sh|\.dockerignore|jest\.config\.js|eslint\.config\.js)$/.test(f) ||
+              /auth.*\.json\$/i.test(f) ||
+              /(^|\/)(logs?|output|dumps?|coverage|scripts)(\/|\$)/i.test(f) ||
+              /\.tgz\$/.test(f)
+            );
+            if (leaked.length) {
+              console.error('Refusing to publish, development files in tarball:', leaked);
+              process.exit(1);
+            }
+            console.log('Tarball is clean, ' + files.length + ' files');
+          "
+          rm -f "$PACK_JSON"
+
+      # --access public, and it is load-bearing rather than decorative. This is a
+      # scoped package (@msout/...), and npm defaults *scoped* packages to
+      # `restricted` access, which is the paid feature. Publishing this without
+      # the flag fails with:
+      #
+      #   npm error code E402
+      #   npm error 402 Payment Required - You must sign up for private packages
+      #
+      # which reads as "you must pay", but only means npm was about to bill for a
+      # private package that this one is not meant to be. Public is free.
+      #
+      # The same setting is in package.json's publishConfig, so a publish from a
+      # laptop gets it too; the flag is repeated here so this line stands on its
+      # own if someone removes the manifest entry.
+      - run: npm publish --access public --provenance

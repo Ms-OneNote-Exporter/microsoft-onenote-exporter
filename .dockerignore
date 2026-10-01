@@ -1,0 +1,39 @@
+# Keep the host's node_modules and any local package tarballs out of the image.
+node_modules/
+.git/
+.gitignore
+
+# The image is built from a lockfile, not from whatever is on disk. A local
+# node_modules would silently replace the pinned dependency tree - and with it
+# the whole reason this image installs one Playwright and one Chromium.
+.local-tarballs/
+.local-package.json.bak
+.local-package-lock.json.bak
+
+# Auth state must never ship. .gitignore keeps it out of git, but a `COPY . .`
+# would still put a full-account credential into a layer, where it stays readable
+# by anyone who can pull the image, forever.
+auth.json
+*auth*json
+logs/
+output/
+dumps/
+diag-dumps/
+
+# Local tooling and CI config
+coverage/
+test/
+jest.config.js
+scripts/
+.github/
+.editorconfig
+*.md
+!README.md
+!NOTICE.md
+!CHANGELOG.md
+
+# Docs and review material: useful in the repository, weight in the image.
+REVIEW-CODE.md
+docs/
+
+.DS_Store

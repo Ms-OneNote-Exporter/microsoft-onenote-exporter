@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Only the newest run per ref matters; cancel superseded ones.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          # Node 24, matching the Dockerfile and the other three repositories.
+          node-version: '24'
+          # No caching. The suite is a couple of seconds; a cached node_modules
+          # tree is a stale-artifact source, and this project's whole subject is
+          # which Playwright got installed.
+          package-manager-cache: false
+
+      # `npm ci`, not `npm install`: it installs exactly the lockfile and fails
+      # if package.json and package-lock.json disagree.
+      #
+      # This is also the step that proves the point of the overrides block. If a
+      # future dependency change reintroduces a second Playwright, the tree built
+      # here is wrong and test/wiring.test.js fails - before a release, rather
+      # than on someone's machine after one.
+      - name: Install dependencies
+        run: npm ci
+
+      - run: npm run lint
+
+      - run: npm test
+        env:
+          # The step packages are real dependencies here, not stubs, so the suite
+          # asserts the installed tree is the shape this project promises. It
+          # needs no browser: nothing in it navigates to OneNote.
+          CI: 'true'
+
+      # Guards against a broken bin entry, and against a package that can no
+      # longer be imported - the failure that would break every consumer.
+      - name: Smoke test the CLI
+        run: |
+          node src/index.js --version
+          node src/index.js --help
+          # Unattended use with no way to choose a notebook must fail before it
+          # reaches the interactive picker.
+          if node src/index.js export --non-interactive; then
+            echo "::error::export --non-interactive without a notebook should exit non-zero"
+            exit 1
+          fi
+
+      # One browser build for the whole tree. Not needed by the tests, which stub
+      # the packages, but it is what CI is here to protect: if the overrides ever
+      # stop collapsing Playwright, `npx playwright install` installs for one
+      # revision and the second copy would need another.
+      - name: Verify the tree agrees on one Chromium
+        run: |
+          npx playwright install --with-deps chromium
+          node -e "
+            const fs = require('fs');
+            const seen = new Set();
+            const walk = (dir, depth) => {
+              if (depth > 4) return;
+              let entries;
+              try { entries = fs.readdirSync(dir + '/node_modules', { withFileTypes: true }); }
+              catch { return; }
+              for (const e of entries) {
+                if (!e.isDirectory() && !e.isSymbolicLink()) continue;
+                if (e.name === 'playwright' || e.name === 'playwright-core') seen.add(e.name);
+                else if (!e.name.startsWith('@')) walk(dir + '/node_modules/' + e.name, depth + 1);
+              }
+            };
+            walk(process.cwd(), 0);
+            console.log('playwright copies:', [...seen].join(', ') || 'none');
+            if (seen.size === 0) { console.error('no playwright found'); process.exit(1); }
+          "

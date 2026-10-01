@@ -1,0 +1,68 @@
+{
+  "name": "@msout/ms-onenote-exporter",
+  "version": "0.1.0",
+  "description": "Log in, list and export Microsoft OneNote notebooks as Obsidian Markdown - one CLI over @msout/microsoft-webauth, @msout/microsoft-onenote-list-notebooks and @msout/microsoft-onenote-export-notebook.",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./cli": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "ms-onenote-exporter": "src/index.js"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE",
+    "NOTICE.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint .",
+    "use:local": "sh scripts/use-local-packages.sh",
+    "use:published": "sh scripts/use-published-packages.sh"
+  },
+  "keywords": [
+    "microsoft",
+    "onenote",
+    "playwright",
+    "export",
+    "obsidian",
+    "markdown",
+    "cli"
+  ],
+  "author": "msout@tuta.io",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ms-OneNote-Exporter/ms-onenote-exporter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Ms-OneNote-Exporter/ms-onenote-exporter/issues"
+  },
+  "homepage": "https://github.com/Ms-OneNote-Exporter/ms-onenote-exporter#readme",
+  "dependencies": {
+    "@msout/microsoft-onenote-export-notebook": "0.3.7",
+    "@msout/microsoft-onenote-list-notebooks": "0.0.6",
+    "@msout/microsoft-webauth": "0.1.8",
+    "chalk": "^4.1.2",
+    "commander": "^14.0.3",
+    "fs-extra": "^11.3.3",
+    "playwright": "1.63.0"
+  },
+  "overrides": {
+    "playwright": "1.63.0",
+    "playwright-core": "1.63.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "jest": "^29.7.0"
+  }
+}

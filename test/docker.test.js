@@ -170,6 +170,20 @@ describe('entrypoint.sh', () => {
         expect(entrypoint).toMatch(/exec "\$@"/);
     });
 
+    // This one shipped broken. The passthrough ran `exec node "$@"` with $@ still
+    // holding "node", so it executed `node node <script>`. Node reads the first
+    // argument as a module path, so both documented debugging routes died with
+    // MODULE_NOT_FOUND:
+    //
+    //   docker run --rm microsoft-onenote-exporter node --version
+    //   docker run --rm microsoft-onenote-exporter node /app/src/index.js list
+    //
+    // Static assertions missed it because `exec node "$@"` looks correct; only
+    // running the built image surfaced it.
+    it('shifts the node passthrough so it does not pass "node" twice', () => {
+        expect(entrypoint).toMatch(/if \[ "\$1" = "node" \]; then\s*\n\s*shift\s*\n\s*exec node "\$@"/);
+    });
+
     // Appending --auth-file unconditionally would override an explicit choice,
     // so the container would read a different session than the one asked for.
     it('only injects --auth-file when the caller did not pass one', () => {
@@ -179,6 +193,27 @@ describe('entrypoint.sh', () => {
 
     it('points at the mounted volume by default', () => {
         expect(entrypoint).toMatch(/AUTH_FILE="\$\{AUTH_FILE:-\/data\/output\/auth\.json\}"/);
+    });
+
+    // The container's working directory is /app, so the CLI's own default for
+    // --output-dir - ./output against the cwd - resolves to /app/output. That
+    // directory exists and is writable, so the export succeeded, reported
+    // "Files saved in: /app/output/<notebook>" and lost everything when the
+    // container exited: /app/output is inside the image, not the mounted volume.
+    // Found only by running a real export and looking for the notes on the host.
+    it('points --output-dir at the mounted volume when there is one', () => {
+        expect(entrypoint).toMatch(/--output-dir \/data\/output/);
+    });
+
+    it('warns when no volume is mounted, since the notes would be lost', () => {
+        expect(entrypoint).toMatch(/WARNING: no volume is mounted/);
+    });
+
+    // An explicit --output-dir has to win, or the run goes somewhere the caller
+    // did not ask for.
+    it('injects --output-dir only when the caller did not pass one', () => {
+        expect(entrypoint).toMatch(/has_output_dir=false/);
+        expect(entrypoint).toMatch(/\[ "\$arg" = "--output-dir" \]/);
     });
 });
 
@@ -226,5 +261,82 @@ describe('start-container.sh', () => {
 
     it('keeps whatever was written, whatever the status', () => {
         expect(startScript).toMatch(/has been kept/);
+    });
+
+    // The documented primary path: the session lives in ./output, which is
+    // already the mounted volume, so there is nothing else to mount. But that
+    // leaves the optional-mount array empty, and expanding an empty array as
+    // "${AUTH_MOUNT[@]}" under `set -u` is an error on some bash builds. The
+    // wrapper died with
+    //
+    //   line 222: AUTH_MOUNT[@]: unbound variable
+    //
+    // before starting any container - so the way the README tells people to run
+    // an export could not run, while the fallback path worked and hid it.
+    it('survives an empty optional-mount array', () => {
+        expect(startScript).toMatch(/AUTH_MOUNT=\(\)/);
+        expect(startScript).toMatch(/\$\{AUTH_MOUNT\[@\]\+"\$\{AUTH_MOUNT\[@\]\}"\}/);
+        // The unguarded form must not still be there.
+        expect(startScript).not.toMatch(/^\s*"\$\{AUTH_MOUNT\[@\]\}" \\$/m);
+    });
+
+    // The wrapper forwarded flags verbatim and never supplied the subcommand, so
+    // the container received only `--notebook <name>` and commander answered
+    // "unknown option '--notebook'" - the subcommand has to precede the flags.
+    it('supplies the subcommand, defaulting to export', () => {
+        expect(startScript).toMatch(/SUBCOMMAND="\$\{1:-\}"/);
+        expect(startScript).toMatch(/SUBCOMMAND="export"/);
+        expect(startScript).toMatch(/"\$SUBCOMMAND" "\$@"/);
+    });
+
+    // It has to say the same thing it runs: this line used to print
+    // "microsoft-onenote-exporter --notebook X", omitting the subcommand the
+    // invocation adds, so the most reassuring line in the script described a
+    // command that was never executed.
+    it('echoes the command it actually runs', () => {
+        // Matched loosely on purpose: the exact tail is allowed to change, but the
+        // subcommand must be named, since omitting it is what made the line a lie.
+        expect(startScript).toMatch(/echo "Running: microsoft-onenote-exporter \$SUBCOMMAND /);
+    });
+
+    // Prefers ./output/auth.json over ~/.microsoft-webauth. It has to check
+    // explicitly: with the default set to ~/.microsoft-webauth, the script looks
+    // for a file named `auth-file.json` in the output directory and silently
+    // ignores the `auth.json` the README tells people to put there.
+    it('prefers ./output/auth.json, then falls back to ~/.microsoft-webauth', () => {
+        expect(startScript).toMatch(/if \[ -f "\$\{OUTPUT_DIR\}\/auth\.json" \]/);
+        expect(startScript).toMatch(/AUTH_FILE="\$HOME\/\.microsoft-webauth\/auth-file\.json"/);
+    });
+
+    // `docker wait` blocks until the container stops. A poll loop over
+    // `docker inspect -f {{.State.ExitCode}}` exits on its first iteration,
+    // because that field is 0 while the container is still running - so the
+    // wrapper reported "Exported files are in: ..." for an export that had not
+    // written a single file.
+    it('waits with docker wait rather than polling the exit code', () => {
+        expect(startScript).toMatch(/EXIT_CODE="\$\(docker wait "\$CONTAINER"\)"/);
+        // `State.ExitCode` may appear in the comment explaining the trap, but
+        // never as a value the script reads.
+        expect(startScript).not.toMatch(/docker inspect -f '\{\{\.State\.ExitCode\}\}'/);
+    });
+
+    // The container name is derived from the working directory, so it repeats
+    // across runs and Docker refuses to reuse it. Without removing the leftover,
+    // the wrapper only ever worked once per machine.
+    it('removes the container it created, and refuses if one is running', () => {
+        expect(startScript).toMatch(/docker rm "\$CONTAINER"/);
+        expect(startScript).toMatch(/is already running/);
+    });
+
+    // app.log is the only record of what an export did. Without the mount it died
+    // with the container, and the wrapper's own "see logs/app.log" advice pointed
+    // at a path that never existed on the host.
+    it('mounts the log directory inside the output volume', () => {
+        expect(startScript).toMatch(/ONENOTE_EXPORT_LOG_DIR=\/data\/output\/logs/);
+        expect(startScript).toMatch(/-e ONENOTE_EXPORT_LOG_DIR=/);
+    });
+
+    it('defaults OUTPUT_DIR to ./output, where the README says notes land', () => {
+        expect(startScript).toMatch(/OUTPUT_DIR="\$\{OUTPUT_DIR:-\.\/output\}"/);
     });
 });

@@ -3,7 +3,7 @@
  * @copyright 2026 msout
  */
 const logger = require('../logger');
-const { EXIT } = require('../config');
+const { EXIT, defaultOutputDir } = require('../config');
 
 /**
  * Loads the package.
@@ -14,6 +14,20 @@ const { EXIT } = require('../config');
  */
 function load() {
     return require('@msout/microsoft-onenote-export-notebook');
+}
+
+/**
+ * Where notes are written.
+ *
+ * Absolute in every case, and never inside a dependency: see the comment where
+ * exportDir is passed to runExport for why that package's own default cannot be
+ * used here.
+ *
+ * @param {string} [dir] - What --output-dir was given, if anything
+ * @returns {string} Absolute path
+ */
+function resolveOutputDir(dir) {
+    return defaultOutputDir(dir);
 }
 
 /**
@@ -44,7 +58,27 @@ async function exportNotebook(options) {
         authFile: options.authFile,
         notebook: options.notebook,
         notebookLink: options.notebookLink,
-        exportDir: options.outputDir,
+        // Always absolute, and never the package's own default. That default is
+        // `path.resolve(__dirname, '../output')`, which is correct for a checkout
+        // and wrong as a dependency: it resolves to
+        //
+        //   node_modules/@msout/microsoft-onenote-export-notebook/output
+        //
+        // Inside the container that is root-owned and read-only to the runtime
+        // user, so a real export died with
+        //
+        //   EACCES: permission denied, mkdir '.../microsoft-onenote-export-notebook/output'
+        //
+        // after it had already signed in, found the notebook and loaded the
+        // editor. Same class of bug as the log directory, and the same fix: the
+        // umbrella resolves the path against the working directory rather than
+        // letting a dependency resolve it against its own install location.
+        //
+        // A relative --output-dir is resolved too, rather than handed through:
+        // handed through it would be re-resolved by the export step against
+        // whatever its own idea of the base directory is, which is the bug above
+        // all over again with an extra step.
+        exportDir: resolveOutputDir(options.outputDir),
         notheadless: options.notheadless,
         dodump: options.dodump,
         nopassasked: options.nopassasked,

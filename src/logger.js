@@ -16,6 +16,43 @@ const { resolveLogDir } = require('./config');
 /** Severity order, lowest first. A message is emitted if its level >= the threshold. */
 const LEVELS = { debug: 10, info: 20, step: 20, success: 20, warn: 30, error: 40 };
 
+/**
+ * JSON.stringify that cannot throw, and that still says something useful.
+ *
+ * A logger that throws while reporting a failure replaces the failure with its
+ * own, and the original is lost - the opposite of what a logger is for.
+ * Circular structures are the usual cause, and this logger is handed whatever a
+ * deep call site thought was worth mentioning.
+ *
+ * The fallback walks the object and renders what it can rather than returning
+ * String(value), which for a circular object yields "[object Object]" and throws
+ * away every field - including the ones outside the cycle, which were the reason
+ * for logging it in the first place.
+ */
+function safeStringify(value) {
+    try {
+        return JSON.stringify(value, null, 2);
+    } catch {
+        try {
+            return JSON.stringify(value, circularReplacer(), 2);
+        } catch {
+            return String(value);
+        }
+    }
+}
+
+/** Marks already-visited objects as "[circular]" instead of recursing forever. */
+function circularReplacer() {
+    const seen = new WeakSet();
+    return (key, val) => {
+        if (val !== null && typeof val === 'object') {
+            if (seen.has(val)) return '[circular]';
+            seen.add(val);
+        }
+        return val;
+    };
+}
+
 class Logger {
     constructor() {
         this.months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -66,13 +103,37 @@ class Logger {
         return str.replace(/\u001b\[[0-9;]*m/g, '');
     }
 
-    _write(level, message, color) {
+    /**
+     * Formats one call's worth of arguments into a printable string.
+     *
+     * Errors are read out of the argument list rather than being passed whole.
+     * This exists because of a real failure: the export step's catch reports
+     * `logger.error('Export failed:', e)`, so an Error arrives as the *second*
+     * argument, not the first. Formatting only the first argument stringified it
+     * and dropped the stack, so a failure that had navigated OneNote, found the
+     * notebook and loaded the editor reported nothing but the words
+     * "failed:" - no message, no stack, nothing in the log file either.
+     *
+     * The extra arguments are joined after the first rather than dropped, which
+     * is what makes `error('context:', err)` read the way it was written.
+     */
+    _format(args) {
+        return args
+            .map((part) => {
+                if (part instanceof Error) return part.stack || part.message;
+                if (typeof part === 'string') return part;
+                return safeStringify(part);
+            })
+            .join(' ')
+            .trim();
+    }
+
+    _write(level, args, color) {
         if (!this._enabled(level)) return;
 
         const stamp = this._timestamp();
-        const body = message instanceof Error
-            ? (message.stack || message.message)
-            : (typeof message === 'string' ? message : JSON.stringify(message, null, 2));
+        const body = this._format(args);
+        if (!body) return;
 
         const plain = body.split('\n').map((line) => `[${level}] ${line}`).join('\n');
         const colored = body.split('\n').map((line) => `${chalk.gray(stamp)} ${color(`[${level}]`)} ${line}`).join('\n');
@@ -85,12 +146,12 @@ class Logger {
         stream.write(`${colored}\n`);
     }
 
-    debug(message) { this._write('debug', message, chalk.gray); }
-    info(message) { this._write('info', message, chalk.blue); }
-    step(message) { this._write('step', message, chalk.magenta); }
-    success(message) { this._write('success', message, chalk.green); }
-    warn(message) { this._write('warn', message, chalk.yellow); }
-    error(message) { this._write('error', message, chalk.red); }
+    debug(...args) { this._write('debug', args, chalk.gray); }
+    info(...args) { this._write('info', args, chalk.blue); }
+    step(...args) { this._write('step', args, chalk.magenta); }
+    success(...args) { this._write('success', args, chalk.green); }
+    warn(...args) { this._write('warn', args, chalk.yellow); }
+    error(...args) { this._write('error', args, chalk.red); }
 }
 
 module.exports = new Logger();

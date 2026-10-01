@@ -144,7 +144,7 @@ sharedOptions(
 )
     .option('--notebook <name>', 'Notebook to export, by name (skips the interactive picker)')
     .option('--notebook-link <url>', 'Notebook to export, by URL (skips listing and picking)')
-    .option('--output-dir <path>', 'Where to write the Markdown (default: ./output)')
+    .option('--output-dir <path>', 'Where to write the Markdown (default: ./output, resolved against the working directory)')
     .option('--nopassasked', 'Skip password-protected sections instead of asking for the password')
     .option('--non-interactive', 'Run unattended: requires --notebook or --notebook-link, and implies --nopassasked')
     .action(async (options) => {

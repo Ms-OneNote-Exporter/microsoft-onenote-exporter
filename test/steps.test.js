@@ -6,6 +6,8 @@
  * their own repositories, and stubbing them here is what lets this suite run in
  * under a second without a browser or an account.
  */
+const path = require('path');
+
 const EXIT = require('../src/config').EXIT;
 
 /** Builds a jest module mock for a step package. */
@@ -252,6 +254,43 @@ describe('steps/export', () => {
         expect(runExport).toHaveBeenCalledWith(
             expect.objectContaining({ exportDir: '/data/output', notebook: 'Work', authFile: AUTH_FILE })
         );
+    });
+
+    // The bug this prevents, and it was a real one. That package's own default is
+    // `path.resolve(__dirname, '../output')`, which as a dependency resolves to
+    // node_modules/@msout/microsoft-onenote-export-notebook/output. Inside the
+    // container node_modules is root-owned, so a default export failed with EACCES
+    // after it had signed in, found the notebook and loaded the editor - so
+    // exportDir is always passed, never left undefined.
+    it('always passes an absolute exportDir, never the package its own default', async () => {
+        const runExport = jest.fn().mockResolvedValue(okStats);
+        await withPackage(
+            '@msout/microsoft-onenote-export-notebook',
+            { runExport, exitCodeForStats: () => 0 },
+            async () => {
+                await require('../src/steps/export').exportNotebook({ authFile: AUTH_FILE });
+            }
+        );
+
+        const { exportDir } = runExport.mock.calls[0][0];
+        expect(path.isAbsolute(exportDir)).toBe(true);
+        expect(exportDir).not.toContain('node_modules');
+        expect(exportDir).toBe(path.resolve(process.cwd(), 'output'));
+    });
+
+    it('resolves a relative --output-dir against the working directory', async () => {
+        const runExport = jest.fn().mockResolvedValue(okStats);
+        await withPackage(
+            '@msout/microsoft-onenote-export-notebook',
+            { runExport, exitCodeForStats: () => 0 },
+            async () => {
+                await require('../src/steps/export').exportNotebook({
+                    authFile: AUTH_FILE,
+                    outputDir: 'notes',
+                });
+            }
+        );
+        expect(runExport.mock.calls[0][0].exportDir).toBe(path.resolve(process.cwd(), 'notes'));
     });
 
     // Guards the option this adapter exists to add: a CLI flag the package does

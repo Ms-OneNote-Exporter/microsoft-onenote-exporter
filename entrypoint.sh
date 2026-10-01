@@ -40,13 +40,54 @@ esac
 if [ "$1" = "/bin/sh" ] || [ "$1" = "sh" ]; then
     exec "$@"
 fi
+# `shift` first, then exec node with what is left. Without the shift this runs
+# `node node <script>`, which node reads as a module path named "node" and fails
+# with MODULE_NOT_FOUND - so the documented debugging route
+#
+#   docker run --rm -it microsoft-onenote-exporter node /app/src/index.js list
+#
+# never worked. Found by running the built image rather than by reading it.
 if [ "$1" = "node" ]; then
+    shift
     exec node "$@"
 fi
 
-# /data/output is the mount point the docs and start-container.sh use for both the
-# auth file and the exported notes, so a run needs one volume, not two.
+# Where the notes go, unless the caller said otherwise.
 #
+# The container's working directory is /app, so the CLI's own default - ./output
+# against the cwd - resolves to /app/output. That directory exists and is
+# writable, so nothing fails: the export runs to completion and reports
+# "Files saved in: /app/output/<notebook>". The notes are then destroyed with the
+# container, because /app/output is inside the image rather than the mounted
+# volume. A run that looked entirely successful and produced nothing on the host.
+#
+# /data/output is the volume mount, so that is the only default that survives.
+# /app/output stays in the image as a fallback for anyone running the CLI with a
+# working directory of their own choosing.
+if [ ! -d /data/output ]; then
+    # No volume mounted: warn rather than silently writing into the image, since
+    # that is the failure this line exists to prevent.
+    echo "WARNING: no volume is mounted at /data/output." >&2
+    echo "         Exported notes will be written inside the container and lost" >&2
+    echo "         when it exits. Mount one, for example:" >&2
+    echo "           -v \"\$PWD/output:/data/output\"" >&2
+else
+    # Appending --output-dir rather than exporting a variable, because the CLI has
+    # no environment variable for it and its default resolves against a cwd of
+    # /app. Only when the caller did not pass one, for the same reason as
+    # --auth-file below: an explicit choice must never be overridden.
+    has_output_dir=false
+    for arg in "$@"; do
+        if [ "$arg" = "--output-dir" ]; then
+            has_output_dir=true
+            break
+        fi
+    done
+    if [ "$has_output_dir" = false ]; then
+        set -- "$@" --output-dir /data/output
+    fi
+fi
+
 # Only injected when the caller did not pass --auth-file themselves: appending it
 # unconditionally would silently override an explicit choice, and the container
 # would read a different session than the one asked for.

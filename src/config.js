@@ -5,6 +5,35 @@
 const os = require('os');
 const path = require('path');
 
+/** Cached so one run cannot write to two different places. */
+let outputDir;
+
+/**
+ * Where exported notes go when --output-dir is not given.
+ *
+ * Absolute, and resolved against the working directory rather than against this
+ * package's own location. It has to be: the export step's own default is
+ * `<its package dir>/output`, which as a dependency lands inside node_modules -
+ * and in the container node_modules is root-owned, so a default export died with
+ * EACCES after it had already signed in, found the notebook and loaded the
+ * editor. Same class of bug as the log directory, and the same fix: resolve the
+ * path here rather than letting a dependency resolve it against its own install
+ * location.
+ *
+ * @param {string} [dir] - Explicit override, resolved to an absolute path
+ * @returns {string} Absolute path of the output directory
+ */
+function defaultOutputDir(dir) {
+    if (dir) return path.resolve(dir);
+    if (!outputDir) outputDir = path.resolve(process.cwd(), 'output');
+    return outputDir;
+}
+
+/** Test seam: forgets the cached default so the next call re-resolves it. */
+function resetOutputDir() {
+    outputDir = undefined;
+}
+
 /**
  * Where the three step packages should write their logs.
  *
@@ -77,4 +106,12 @@ const EXIT = {
     partial: 3,
 };
 
-module.exports = { resolveLogDir, shareLogDir, defaultAuthFile, TARGETS, EXIT };
+module.exports = {
+    resolveLogDir,
+    shareLogDir,
+    defaultAuthFile,
+    defaultOutputDir,
+    resetOutputDir,
+    TARGETS,
+    EXIT,
+};

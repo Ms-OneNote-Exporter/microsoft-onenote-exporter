@@ -129,31 +129,106 @@ authenticated DOM of a real account: cookies, tenant hostnames, note titles.
 
 ## Docker
 
+One image, one Chromium, serving all five commands. It replaces the three separate
+images these packages used to ship, each carrying its own browser.
+
 ```sh
 docker build -t microsoft-onenote-exporter .
 ```
 
-One image, one Chromium, serving all five commands. The auth file is read from
-`/data/output/auth.json` unless you pass `--auth-file`.
+### Mounting
+
+The container reads and writes through a single volume mounted at
+`/data/output`. The host directory of your choice — `./output` below — receives
+the exported notes *and* provides the saved session:
+
+```
+host ./output  ->  /data/output
+```
+
+A login cannot happen inside the container: without credentials the browser has
+to be shown, and there is nobody there to show it to. So you sign in on the host
+first, put the session in the mount, and the container reads it from there:
+
+```sh
+# 1. sign in on the host, once
+microsoft-onenote-exporter login
+
+# 2. put the session where the container can see it
+mkdir -p output
+cp ~/.microsoft-webauth/auth-file.json output/auth.json
+
+# 3. export, writing notes back into ./output
+docker run --rm --init --shm-size=1g \
+  -v "$PWD/output:/data/output" \
+  microsoft-onenote-exporter export \
+    --notebook "NotebookLongSimple" \
+    --non-interactive
+```
+
+That produces:
+
+```
+output/
+├── auth.json                    the session (a live credential - see below)
+├── logs/app.log                 every step of the run, in order
+└── NotebookLongSimple/
+    ├── Section1/
+    │   ├── Section1-Note1.md
+    │   └── Section1-Note2w2Pic.md
+    └── Section2/assets/         images and attachments, beside the notes
+```
+
+Two flags are required and are easy to leave out:
+
+- **`--shm-size=1g`** — Chromium crashes on memory-heavy pages with Docker's
+  default 64 MB of shared memory.
+- **`--init`** — reaps Chromium's child processes instead of leaving zombies.
+
+If you omit the `-v` mount, the entrypoint warns you: the notes would be written
+inside the container and lost when it exits. That is not a hypothetical — it is
+what happens by default, because the CLI's own default for `--output-dir` is
+`./output` relative to a working directory of `/app`, which exists and is
+writable, so the export succeeds and the files vanish. Whenever a volume is
+mounted, the entrypoint points `--output-dir` at it.
+
+`output/auth.json` is a full account credential. Keep the directory out of git —
+`.gitignore` covers `output/` — and be careful with anything that syncs it whole,
+such as a cloud backup or an Obsidian vault. If you would rather keep the session
+out of the notes directory, mount it separately instead:
 
 ```sh
 docker run --rm --init --shm-size=1g \
-  -v "$PWD/out:/data/output" \
-  microsoft-onenote-exporter export --notebook "Work" --non-interactive
+  -v "$PWD/output:/data/output" \
+  -v "$HOME/.microsoft-webauth/auth-file.json:/data/auth/session.json:ro" \
+  microsoft-onenote-exporter export \
+    --notebook "NotebookLongSimple" --non-interactive \
+    --auth-file /data/auth/session.json
 ```
 
-Or use the wrapper, which waits for the run and translates the exit code:
+### The wrapper
+
+`start-container.sh` does the mounting, waits for the run, and translates the
+exit code into an explanation:
 
 ```sh
-./start-container.sh --notebook "Work" --output-dir ./out
+cp ~/.microsoft-webauth/auth-file.json ./output/auth.json   # once
+./start-container.sh --notebook "NotebookLongSimple"
 ```
 
-`--shm-size=1g` is required: Chromium crashes on memory-heavy pages with Docker's
-default 64 MB of shared memory. `--init` reaps Chromium's child processes.
+It defaults `OUTPUT_DIR` to `./output`, so that is where the notes and
+`logs/app.log` land. If `./output/auth.json` is absent it falls back to the
+session in `~/.microsoft-webauth`, mounting that read-only instead — so it works
+either way.
 
-`login` is refused inside the container — without credentials the browser has to
-be shown, and there is nobody there to show it to. Log in on the host first and
-mount the resulting file.
+```sh
+CONTAINER=other-name ./start-container.sh --notebook "Work"   # rename the container
+IMAGE=my-registry/microsoft-onenote-exporter ./start-container.sh --notebook "Work"
+```
+
+The wrapper runs detached and reports the container's exit status. It removes the
+container it created, so it can be run repeatedly; if one is still running it
+says so rather than colliding with it.
 
 ## Development
 

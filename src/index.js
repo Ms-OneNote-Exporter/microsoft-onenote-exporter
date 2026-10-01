@@ -77,17 +77,19 @@ async function run(step) {
 }
 
 program
-    .name('ms-onenote-exporter')
+    .name('microsoft-onenote-exporter')
     .description('Sign in to Microsoft OneNote, list the notebooks on the account, and export one to Markdown.')
     .version(PKG_VERSION)
     .addHelpText('after', `
+Also installed as: ms-onenote-exporter
+
 Logs for every step of a run are written to one app.log in:
   ${LOG_DIR}
 
 A typical first run:
-  ms-onenote-exporter login
-  ms-onenote-exporter list
-  ms-onenote-exporter export --notebook "Work"
+  microsoft-onenote-exporter login
+  microsoft-onenote-exporter list
+  microsoft-onenote-exporter export --notebook "Work"
 `);
 
 sharedOptions(

@@ -40,7 +40,7 @@ async function list(options) {
     if (notebooks.length === 0) {
         logger.warn('No notebooks were found on this account.');
         logger.warn('If you know the notebook exists, export it by URL:');
-        logger.warn('  ms-onenote-exporter export --notebook-link <url>');
+        logger.warn('  microsoft-onenote-exporter export --notebook-link <url>');
     } else {
         logger.step('\nAvailable notebooks:');
         notebooks.forEach((nb, index) => {

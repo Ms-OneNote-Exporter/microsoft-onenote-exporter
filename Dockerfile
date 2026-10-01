@@ -71,9 +71,9 @@ USER node
 # crashes on memory-heavy pages. `--shm-size` is a `docker run` flag, so
 # start-container.sh passes it (along with --init to reap Chromium's zombies).
 # Documented here so the requirement is not lost.
-LABEL org.opencontainers.image.title="ms-onenote-exporter" \
+LABEL org.opencontainers.image.title="microsoft-onenote-exporter" \
       org.opencontainers.image.description="Sign in to Microsoft OneNote, list notebooks, and export one to Markdown" \
-      org.opencontainers.image.source="https://github.com/Ms-OneNote-Exporter/ms-onenote-exporter" \
+      org.opencontainers.image.source="https://github.com/Ms-OneNote-Exporter/microsoft-onenote-exporter" \
       org.opencontainers.image.licenses="MIT"
 
 ENTRYPOINT ["/app/entrypoint.sh"]

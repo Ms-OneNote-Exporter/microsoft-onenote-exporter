@@ -1,5 +1,5 @@
 #!/bin/sh
-# Container entrypoint for ms-onenote-exporter.
+# Container entrypoint for microsoft-onenote-exporter.
 #
 # One image, five commands. The old images took a session GUID and a notebook
 # name as positional arguments, which was tied to one pipeline's idea of what a
@@ -9,7 +9,7 @@
 set -e
 
 if [ $# -eq 0 ]; then
-    echo "Usage: ms-onenote-exporter <command> [options]"
+    echo "Usage: microsoft-onenote-exporter <command> [options]"
     echo ""
     echo "Commands:"
     echo "  login     Sign in to Microsoft and save the session"
@@ -19,7 +19,7 @@ if [ $# -eq 0 ]; then
     echo "  export    Export one notebook to Markdown"
     echo ""
     echo "Example:"
-    echo "  docker run -v ./out:/data/output ms-onenote-exporter \\"
+    echo "  docker run -v ./out:/data/output microsoft-onenote-exporter \\"
     echo "    export --auth-file /data/output/auth.json --notebook 'Work' --non-interactive"
     exit 0
 fi
@@ -30,7 +30,7 @@ case "$1" in
     login)
         echo "ERROR: 'login' needs a visible browser, which a container has no way to show." >&2
         echo "       Log in on the host first, then mount the resulting auth file:" >&2
-        echo "         ms-onenote-exporter login" >&2
+        echo "         microsoft-onenote-exporter login" >&2
         echo "         docker run -v \$HOME/.microsoft-webauth:/data/auth ..." >&2
         exit 2
         ;;

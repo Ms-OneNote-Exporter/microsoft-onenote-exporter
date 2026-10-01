@@ -1,4 +1,4 @@
-# ms-onenote-exporter
+# microsoft-onenote-exporter
 
 One command for the whole Microsoft OneNote pipeline: sign in, list the notebooks
 on the account, export one to Obsidian-flavoured Markdown.
@@ -42,19 +42,28 @@ is installed, or if the pins drift back to a range.
 ## Install
 
 ```sh
-npm install -g @msout/ms-onenote-exporter
+npm install -g @msout/microsoft-onenote-exporter
 npx playwright install chromium
 ```
 
 The Chromium download is separate from `npm install` and is required — without it
 every command that opens a browser fails.
 
+Two command names are installed, pointing at the same binary:
+
+```sh
+microsoft-onenote-exporter login    # matches the package and repository name
+ms-onenote-exporter login           # shorter, for typing
+```
+
+Everything below uses the long one.
+
 ## Use
 
 ```sh
-ms-onenote-exporter login                              # opens a browser; sign in there
-ms-onenote-exporter list                               # what is on the account
-ms-onenote-exporter export --notebook "Work"           # export one
+microsoft-onenote-exporter login                              # opens a browser; sign in there
+microsoft-onenote-exporter list                               # what is on the account
+microsoft-onenote-exporter export --notebook "Work"           # export one
 ```
 
 That is the whole pipeline. The session written by `login` is picked up by
@@ -91,7 +100,7 @@ turns the other on and says so.
 nobody is there to answer:
 
 ```sh
-ms-onenote-exporter export --notebook "Work" --non-interactive --output-dir ./out
+microsoft-onenote-exporter export --notebook "Work" --non-interactive --output-dir ./out
 ```
 
 ### Exit codes
@@ -121,7 +130,7 @@ authenticated DOM of a real account: cookies, tenant hostnames, note titles.
 ## Docker
 
 ```sh
-docker build -t ms-onenote-exporter .
+docker build -t microsoft-onenote-exporter .
 ```
 
 One image, one Chromium, serving all five commands. The auth file is read from
@@ -130,7 +139,7 @@ One image, one Chromium, serving all five commands. The auth file is read from
 ```sh
 docker run --rm --init --shm-size=1g \
   -v "$PWD/out:/data/output" \
-  ms-onenote-exporter export --notebook "Work" --non-interactive
+  microsoft-onenote-exporter export --notebook "Work" --non-interactive
 ```
 
 Or use the wrapper, which waits for the run and translates the exit code:

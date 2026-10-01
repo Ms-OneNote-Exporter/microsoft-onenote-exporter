@@ -90,7 +90,7 @@ async function check(options) {
 
     if (!authenticated) {
         logger.error('Not authenticated, or the saved session has expired.');
-        logger.error('Run "ms-onenote-exporter login" to create a new one.');
+        logger.error('Run "microsoft-onenote-exporter login" to create a new one.');
         return { authenticated: false, exitCode: EXIT.failed };
     }
 

@@ -13,7 +13,7 @@ their behaviour.
 
 ### Added
 
-- **`ms-onenote-exporter <login|check|logout|list|export>`.** One binary over
+- **`microsoft-onenote-exporter <login|check|logout|list|export>`.** One binary over
   `@msout/microsoft-webauth`, `@msout/microsoft-onenote-list-notebooks` and
   `@msout/microsoft-onenote-export-notebook`, all three of which remain
   separately installable and separately tested. A typical first run is `login`,

@@ -7,7 +7,7 @@
 # pointed at a sibling checkout that only existed on one machine and used a fixed
 # image name, so it could not be used anywhere else.
 #
-#   IMAGE        image to run            (default: ms-onenote-exporter)
+#   IMAGE        image to run            (default: microsoft-onenote-exporter)
 #   CONTAINER    container name          (default: ms_onenote_export)
 #   OUTPUT_DIR   host dir for the export (default: ./output)
 #   AUTH_FILE    session to use          (default: $OUTPUT_DIR/auth.json)
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 SESSION="$(basename "${PWD}")"
-IMAGE="${IMAGE:-ms-onenote-exporter}"
+IMAGE="${IMAGE:-microsoft-onenote-exporter}"
 CONTAINER="${CONTAINER:-ms_onenote_export_${SESSION}}"
 OUTPUT_DIR="${OUTPUT_DIR:-./output}"
 AUTH_FILE="${AUTH_FILE:-${OUTPUT_DIR}/auth.json}"
@@ -41,7 +41,7 @@ fi
 if [ ! -f "$AUTH_FILE" ]; then
     echo "ERROR: no auth file at $AUTH_FILE" >&2
     echo "  Log in on the host first, then point this at the result:" >&2
-    echo "    ms-onenote-exporter login" >&2
+    echo "    microsoft-onenote-exporter login" >&2
     echo "    cp ~/.microsoft-webauth/auth-file.json \"$AUTH_FILE\"" >&2
     exit 1
 fi
@@ -57,7 +57,7 @@ echo "Image     : $IMAGE"
 echo "Auth file : $AUTH_FILE_ABS"
 echo "Output    : $OUTPUT_DIR_ABS"
 echo ""
-echo "Running: ms-onenote-exporter $* --non-interactive"
+echo "Running: microsoft-onenote-exporter $* --non-interactive"
 echo ""
 
 # Chromium needs more than Docker's default 64 MB of shared memory or it crashes

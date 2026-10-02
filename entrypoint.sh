@@ -72,19 +72,40 @@ if [ ! -d /data/output ]; then
     echo "         when it exits. Mount one, for example:" >&2
     echo "           -v \"\$PWD/output:/data/output\"" >&2
 else
-    # Appending --output-dir rather than exporting a variable, because the CLI has
-    # no environment variable for it and its default resolves against a cwd of
-    # /app. Only when the caller did not pass one, for the same reason as
-    # --auth-file below: an explicit choice must never be overridden.
-    has_output_dir=false
+    # Only `export` writes notes, so only `export` is offered --output-dir.
+    #
+    # Appending it for every subcommand broke the other three: `list`, `check` and
+    # `logout` do not define that option, so commander answered
+    #
+    #   error: unknown option '--output-dir'
+    #
+    # and exited 1 - the container refused to list anything, while the flag it
+    # complained about had been added here, not by the caller. `export` kept
+    # working, which is why it went unnoticed: it was the only subcommand anyone
+    # had run through a container.
+    is_export=false
     for arg in "$@"; do
-        if [ "$arg" = "--output-dir" ]; then
-            has_output_dir=true
+        if [ "$arg" = "export" ]; then
+            is_export=true
             break
         fi
     done
-    if [ "$has_output_dir" = false ]; then
-        set -- "$@" --output-dir /data/output
+
+    if [ "$is_export" = true ]; then
+        # Appending --output-dir rather than exporting a variable, because the CLI
+        # has no environment variable for it and its default resolves against a
+        # cwd of /app. Only when the caller did not pass one, for the same reason
+        # as --auth-file below: an explicit choice must never be overridden.
+        has_output_dir=false
+        for arg in "$@"; do
+            if [ "$arg" = "--output-dir" ]; then
+                has_output_dir=true
+                break
+            fi
+        done
+        if [ "$has_output_dir" = false ]; then
+            set -- "$@" --output-dir /data/output
+        fi
     fi
 fi
 

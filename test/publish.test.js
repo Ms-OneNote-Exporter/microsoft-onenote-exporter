@@ -107,6 +107,40 @@ describe('release prerequisites', () => {
         }
     });
 
+    // 0.1.0 and 0.1.1 shipped without these two files. The `files` whitelist
+    // listed src/ and the documents, so the tarball had 11 files and neither
+    // script - and six of the fixes in 0.1.1 live inside those two files. A
+    // consumer who installed the package and then tried to run a container from
+    // it had no entrypoint to build an image from.
+    //
+    // Found by installing the published tarball and looking for the files the
+    // README tells people to use. The publish gate missed it because it checked
+    // what must NOT ship, never what must.
+    it('ships entrypoint.sh and start-container.sh', () => {
+        const shipped = require('child_process')
+            .execFileSync('npm', ['pack', '--dry-run', '--json'], {
+                cwd: ROOT,
+                encoding: 'utf8',
+                stdio: ['ignore', 'pipe', 'ignore'],
+            });
+        const names = JSON.parse(shipped)[0].files.map((f) => f.path);
+
+        for (const script of ['entrypoint.sh', 'start-container.sh']) {
+            expect({ script, shipped: names.includes(script) })
+                .toEqual({ script, shipped: true });
+        }
+    });
+
+    // Executable matters as much as present: a tarball that ships them as 0644
+    // gives `Cannot exec: permission denied` from the ENTRYPOINT line.
+    it('ships both scripts executable', () => {
+        for (const script of ['entrypoint.sh', 'start-container.sh']) {
+            const mode = fs.statSync(path.join(ROOT, script)).mode;
+            expect({ script, executable: (mode & 0o111) !== 0 })
+                .toEqual({ script, executable: true });
+        }
+    });
+
     it('has no npm token in .npmrc, because publishing goes through OIDC', () => {
         const npmrc = path.join(ROOT, '.npmrc');
         if (!fs.existsSync(npmrc)) return; // nothing to assert

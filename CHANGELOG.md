@@ -6,7 +6,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.3] - 2026-10-02
+## [0.1.4] - 2026-10-02
+
+A **patch**. Three of the five subcommands could not run through
+`start-container.sh` at all, and only `export` had ever been tried.
+
+### Fixed
+
+- **`list`, `check` and `logout` were rejected when given no flags**, by a
+  `$# -eq 0` guard written for `export` and applied to all five subcommands. Those
+  three steps need no arguments; the extra guard is gone and the export-specific
+  one is now the only one. Closes #3.
+
+- **`logout` cannot be done in a container, and now does not try.** Mounting the
+  session read-write and letting the container delete it cannot work: Docker
+  mounts a single file at `/data/auth/session.json`, and a container cannot remove
+  a mount point, so unlinking it failed with `EACCES` whether the mount was
+  read-only or not. Deleting a session is a host-side operation, so the wrapper
+  removes the file and its `-meta.json` itself, before an image is even required.
+  The session stays mounted read-only for every other step, so a bug in the
+  container still cannot destroy it.
+
+- **`--auth-file` is no longer silently ignored.** The wrapper picks the session
+  itself and passes its own `--auth-file` to the container, so a caller's
+  `--auth-file ./my.json` was neither honoured nor rejected — the wrong session
+  was used and the run succeeded against it. It is now the highest-precedence
+  source, verified with a decoy `output/auth.json` left in place.
+
+- **Failure messages name the subcommand.** A failed `logout` reported "the export
+  failed and produced nothing usable" and pointed at notes that were never the
+  point of the command.
+
+Tests: 132 → 137. Five of them fail against 0.1.3, and two assert source *position*
+rather than text, because assertions in this file had already passed against
+broken versions twice: one checked only that a guard existed rather than that it
+was scoped to `export`, and another matched a path that a comment matched first.
+
+Verified against a real account, all four through the wrapper: `list` exits 0 with
+12 notebooks, `check` exits 0 reporting Authenticated, `logout` removes the session
+and its metadata with no image needed, and `export` still produces 19 notes.
+
+## [0.1.3] - 2026-10-02 - 2026-10-02
 
 A **patch**, and the first release driven by the automation added in the previous
 one rather than by remembering to check.

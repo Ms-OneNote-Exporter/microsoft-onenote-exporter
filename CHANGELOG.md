@@ -6,6 +6,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-02
+
+A **patch**, and the first release driven by the automation added in the previous
+one rather than by remembering to check.
+
+### Changed
+
+- **`@msout/microsoft-onenote-list-notebooks` 0.0.6 → 0.0.7.** Pin bumped and the
+  lockfile regenerated, so it now resolves that version from the registry rather
+  than the previous tarball.
+
+  The contract this adapter depends on is unchanged — `listNotebooks(options)`
+  still returns `Array<{name, url, id}>`, and the module still exports
+  `listNotebooks` and `dismissMcasInterstitial` — so no code here changed.
+
+  What 0.0.7 brings, from its own release: real notebook URLs are resolved instead
+  of the MRU placeholder, and links are read from the MRU feed in canonical form.
+  That matters here because `list` prints `nb.url`, so the URLs this tool reports
+  are now the ones that can actually be opened.
+
+  0.0.6 was still pinned when this was written, which is what the `stale-steps`
+  CI job reported on its first run and what Dependabot has a grouped PR open for.
+
+### Fixed
+
+- **`entrypoint.sh` offered `--output-dir` to every subcommand.** `list`, `check`
+  and `logout` do not define that option, so all three died with
+  `error: unknown option '--output-dir'` and exit 1 — the container refused to list
+  anything, while the flag commander rejected had been added by the entrypoint
+  itself. `export` kept working, and it was the only subcommand anyone had run
+  through a container. Now gated on the subcommand actually being `export`.
+
+  Two tests, both of which fail against the previous entrypoint: one asserts the
+  injection sits *inside* the export gate by comparing source positions, because
+  the earlier assertion checked only that the injection existed and not which
+  subcommands it applied to — which is exactly why it passed against the broken
+  version. The other pins the subcommand match by name.
+
+- Related: **issue #3** — `start-container.sh` still refuses `list`, `check` and
+  `logout` when given no flags, from a `$# -eq 0` guard written for `export` and
+  applied to all five subcommands. Tracked, not yet fixed; both it and the
+  entrypoint bug have to be resolved before `list` works through the wrapper.
+
+Tests: 130 → 132.
+
 ## [0.1.2] - 2026-10-02
 
 A **patch**. It changes what is published, not what the package does.

@@ -86,3 +86,101 @@ jobs:
             console.log('playwright copies:', [...seen].join(', ') || 'none');
             if (seen.size === 0) { console.error('no playwright found'); process.exit(1); }
           "
+
+  # The cheap second layer under Dependabot.
+  #
+  # Dependabot opens a PR when a step package is published; this reports the same
+  # drift on every build, including ones nobody opened a PR for. It is deliberately
+  # non-blocking for the @msout/* steps - a green main that says "list-notebooks
+  # 0.0.7 exists and you are on 0.0.6" is more useful than a red one, because
+  # red means the last commit is broken over a dependency bump rather than over
+  # anything wrong with the code. The pins are exact on purpose, so they never move
+  # by themselves, and this is what makes a forgotten bump visible.
+  #
+  # Anything that would actually break a release is fatal instead: playwright
+  # moving under the overrides, or the tree no longer collapsing to one copy.
+  stale-steps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Report newer step packages without failing the build
+        run: |
+          set +e
+          npm outdated --json > /tmp/outdated.json 2>/dev/null
+          set -e
+
+          node -e "
+            const fs = require('fs');
+            const STEPS = [
+              '@msout/microsoft-webauth',
+              '@msout/microsoft-onenote-list-notebooks',
+              '@msout/microsoft-onenote-export-notebook',
+            ];
+            const pkg = require('./package.json');
+            const outdated = fs.existsSync('/tmp/outdated.json')
+              ? JSON.parse(fs.readFileSync('/tmp/outdated.json', 'utf8') || '{}')
+              : {};
+
+            let lines = [];
+            for (const name of STEPS) {
+              const pinned = pkg.dependencies[name];
+              const found = outdated[name];
+              if (!found) continue;
+              lines.push(\`  \${name}
+      pinned \${pinned}, published \${found.latest}\`);
+            }
+
+            if (!lines.length) {
+              console.log('All three step packages are at their pinned versions.');
+            } else {
+              console.log('A newer step package has been published (not an error -');
+              console.log('Dependabot opens a PR for this, and a human decides):');
+              console.log(lines.join('\n'));
+              console.log('');
+              console.log('To take one:');
+              console.log('  npm pkg set dependencies.' + STEPS[0] + '=<version>');
+              console.log('  npm install && npm test');
+              console.log('then bump this package, tag, and push.');
+            }
+          "
+
+      # Fatal, because these two change what a release would contain rather than
+      # how current it is.
+      - name: Fail if playwright drifts from the pinned override
+        run: |
+          OVERRIDE="$(node -p "require('./package.json').overrides.playwright")"
+          INSTALLED="$(node -p "require('./node_modules/playwright/package.json').version")"
+          if [ "$INSTALLED" != "$OVERRIDE" ]; then
+            echo "::error::playwright installed as $INSTALLED but the overrides block pins $OVERRIDE"
+            echo "::error::A release built on this tree would not have the Chromium it was tested against."
+            exit 1
+          fi
+          echo "playwright $INSTALLED matches the override."
+
+      # The exact pins are the design, not an oversight: a caret here is what
+      # produced four Chromium revisions and a 3.2 GB browser cache. Asserted so
+      # that a well-meaning "let Dependabot use ranges" cannot quietly reintroduce it.
+      - name: Verify the step packages are still pinned exactly
+        run: |
+          node -e "
+            const pkg = require('./package.json');
+            const STEPS = [
+              '@msout/microsoft-webauth',
+              '@msout/microsoft-onenote-list-notebooks',
+              '@msout/microsoft-onenote-export-notebook',
+            ];
+            const loose = STEPS.filter(n => /[\^~*]|x/.test(pkg.dependencies[n] || ''));
+            if (loose.length) {
+              console.error('::error::these step dependencies are no longer pinned exactly:', loose);
+              process.exit(1);
+            }
+            console.log('All three step packages are pinned exactly:', STEPS.map(n => pkg.dependencies[n]).join(', '));
+          "

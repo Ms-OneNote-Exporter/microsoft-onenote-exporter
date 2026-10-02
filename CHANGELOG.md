@@ -6,6 +6,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-02
+
+A **patch**. It changes what is published, not what the package does.
+
+### Fixed
+
+- **`entrypoint.sh` and `start-container.sh` are published again.** The `files`
+  whitelist listed `src/` and the four documents, so the tarball had eleven files
+  and neither container script — 0.1.0 and 0.1.1 both shipped that way. It
+  mattered because six of the fixes in 0.1.1 live inside those two files, and
+  because the README's Docker section is built on them: a consumer who installed
+  the package and then tried to run a container from it had no entrypoint to
+  build an image from and no wrapper to call.
+
+  The publish gate missed it because it only ever checked what must *not* ship —
+  no test suites, no auth state, no workflow files — and never what must. Two
+  tests now cover that direction, and one of them checks the executable bit too,
+  since a tarball carrying the scripts as `0644` would fail at the `ENTRYPOINT`
+  line with `Cannot exec: permission denied`.
+
+  Thirteen files, up from eleven.
+
+### Changed
+
+- **`docker-output/` is gitignored.** A container run pointed at that directory
+  leaves `auth.json` beside the exported notes, and `git add -A` would have staged
+  a live full-account session.
+
+Tests: 128 → 130.
+
 ## [0.1.1] - 2026-10-01
 
 A **patch**, and an unusual one: it fixes six bugs and changes no documented

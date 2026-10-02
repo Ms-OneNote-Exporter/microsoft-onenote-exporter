@@ -2,4 +2,10 @@ node_modules/
 .local-tarballs/
 logs/
 output/
+
+# Export output from a container run, wherever it was pointed. Carries auth.json
+# alongside the notes, so it must never be staged - a plain `git add -A` from
+# this directory would commit a live full-account session.
+docker-output/
+
 .DS_Store

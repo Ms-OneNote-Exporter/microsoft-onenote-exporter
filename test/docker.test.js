@@ -215,6 +215,40 @@ describe('entrypoint.sh', () => {
         expect(entrypoint).toMatch(/has_output_dir=false/);
         expect(entrypoint).toMatch(/\[ "\$arg" = "--output-dir" \]/);
     });
+
+    // The bug. --output-dir was appended for every subcommand, so `list`, `check`
+    // and `logout` - none of which define that option - all died with
+    //
+    //   error: unknown option '--output-dir'
+    //
+    // and the flag in question had been added by the entrypoint itself. `export`
+    // kept working, because it is the only subcommand anyone had run through a
+    // container, and 130 tests passed throughout.
+    //
+    // Asserted as structure rather than as text, because the previous assertion
+    // above passed against the broken version: it checked that the injection
+    // existed, not which subcommands it applied to.
+    it('offers --output-dir only to export', () => {
+        // The gate that decides.
+        expect(entrypoint).toMatch(/if \[ "\$arg" = "export" \]; then/);
+        expect(entrypoint).toMatch(/is_export=true/);
+
+        // And the injection is inside that gate, not after it. Comparing the two
+        // positions is what makes this fail if someone un-scopes it again.
+        const gate = entrypoint.indexOf('if [ "$is_export" = true ]; then');
+        const inject = entrypoint.indexOf('set -- "$@" --output-dir /data/output');
+        expect(gate).toBeGreaterThan(-1);
+        expect(inject).toBeGreaterThan(-1);
+        expect({ injectIsInsideExportGate: inject > gate }).toEqual({ injectIsInsideExportGate: true });
+    });
+
+    // A named subcommand is how the entrypoint recognises export. If the CLI ever
+    // took it as a flag instead, this would silently stop matching and the notes
+    // would go back to /app/output - the failure that started all this.
+    it('matches the export subcommand by name, as the CLI takes it', () => {
+        expect(entrypoint).toMatch(/case "\$1" in\s*\n\s*login\)/);
+        expect(entrypoint).toMatch(/\[ "\$arg" = "export" \]/);
+    });
 });
 
 describe('start-container.sh', () => {

@@ -323,6 +323,41 @@ describe('start-container.sh', () => {
         expect(startScript).toMatch(/"\$SUBCOMMAND" "\$@"/);
     });
 
+    // Issue #3. `list`, `check` and `logout` need no arguments at all, and an
+    // unscoped `$# -eq 0` guard rejected all three:
+    //
+    //   $ ./start-container.sh list
+    //   Usage: ./start-container.sh <list> [options...]
+    //
+    // Two guards did this, and only one was meant to. The export-scoped one is
+    // correct; the bare one was not, and is gone.
+    //
+    // Asserted structurally - that no `$# -eq 0` test exists outside an export
+    // guard - because the previous assertion in this file passed against the
+    // broken script: it checked that a subcommand was supplied, not that the
+    // wrapper then accepted a bare one.
+    it('does not require arguments for the steps that need none', () => {
+        // Match the whole `if` line rather than one bracket group: a condition
+        // like [ "$SUBCOMMAND" = "export" ] && [ $# -eq 0 ] contains a `]` before
+        // the `$#`, so a pattern anchored on `[ ... ]` finds nothing. That was
+        // the first version of this test, and it passed vacuously against a
+        // script with no guard at all - which is the failure mode it exists to
+        // prevent.
+        const guards = [...startScript.matchAll(/^\s*if\s+(\[.*\$#\s*-eq\s*0.*\])\s*; then/gm)];
+        expect(guards.length).toBeGreaterThan(0);
+
+        for (const guard of guards) {
+            // Every remaining argument-count guard must be scoped to export.
+            expect({ guard: guard[1], scopedToExport: /SUBCOMMAND" = "export"/.test(guard[1]) })
+                .toEqual({ guard: guard[1], scopedToExport: true });
+        }
+    });
+
+    it('still refuses a bare export, which cannot choose a notebook', () => {
+        // The guard that should have been the only one.
+        expect(startScript).toMatch(/if \[ "\$SUBCOMMAND" = "export" \] && \[ \$# -eq 0 \]; then/);
+    });
+
     // It has to say the same thing it runs: this line used to print
     // "microsoft-onenote-exporter --notebook X", omitting the subcommand the
     // invocation adds, so the most reassuring line in the script described a
@@ -368,6 +403,58 @@ describe('start-container.sh', () => {
     it('mounts the log directory inside the output volume', () => {
         expect(startScript).toMatch(/ONENOTE_EXPORT_LOG_DIR=\/data\/output\/logs/);
         expect(startScript).toMatch(/-e ONENOTE_EXPORT_LOG_DIR=/);
+    });
+
+    // logout deletes the session - that is all it does - so mounting it read-only
+    // made the subcommand impossible:
+    //
+    //   EACCES: permission denied, unlink '/data/auth/session.json'
+    //
+    // Read-only stays the default for every other step, since a bug in the
+    // container should not be able to destroy a live full-account session.
+    // logout cannot be done in the container at all: Docker mounts a single file
+    // at /data/auth/session.json, and a container cannot remove a mount point, so
+    // unlinking it failed with EACCES whether the mount was read-only or not.
+    // Deleting a session is a host-side operation, so the script does it and
+    // exits before requiring an image at all.
+    it('does logout on the host, without a container', () => {
+        expect(startScript).toMatch(/if \[ "\$SUBCOMMAND" = "logout" \]; then\s*\n\s*if \[ ! -f "\$AUTH_FILE" \]/);
+        expect(startScript).toMatch(/rm -f "\$AUTH_FILE"/);
+        // The metadata webauth writes beside the session goes too.
+        expect(startScript).toMatch(/META_FILE="\$\{AUTH_FILE%\.json\}-meta\.json"/);
+        expect(startScript).toMatch(/rm -f "\$META_FILE"/);
+    });
+
+    // The flag was silently ignored: the wrapper picks the session itself and
+    // passes its own --auth-file to the container, so a caller's
+    // `--auth-file ./my.json` was neither honoured nor rejected. Found by passing
+    // the flag, watching a different file get deleted, and reading the code.
+    it('honours --auth-file from the command line, and prefers it', () => {
+        expect(startScript).toMatch(/AUTH_FILE_FROM_ARGS/);
+        expect(startScript).toMatch(/\[ "\$prev" = "--auth-file" \]/);
+        expect(startScript).toMatch(/--auth-file=\*/);
+        // Highest precedence, before the env var and both defaults. Matched on the
+        // assignments rather than the bare path, because the comment above them
+        // documents the same order and would match first.
+        const branch = startScript.indexOf('if [ -n "$AUTH_FILE_FROM_ARGS" ]; then');
+        const envBranch = startScript.indexOf('elif [ -n "${AUTH_FILE:-}" ]; then');
+        const fallback = startScript.indexOf('AUTH_FILE="$HOME/.microsoft-webauth/auth-file.json"');
+        expect(branch).toBeGreaterThan(-1);
+        expect(envBranch).toBeGreaterThan(-1);
+        expect(fallback).toBeGreaterThan(-1);
+        expect(branch).toBeLessThan(envBranch);
+        expect(envBranch).toBeLessThan(fallback);
+    });
+
+    // The exit-code messages named "the export" unconditionally, so a failed
+    // logout said "the export failed and produced nothing usable" and pointed at
+    // notes that were never the point of the command.
+    it('names the subcommand in its failure messages', () => {
+        expect(startScript).toMatch(/WARNING: \$SUBCOMMAND failed\./);
+        expect(startScript).toMatch(/echo "\$SUBCOMMAND finished\."/);
+        // "Exported files are in:" is export-specific and stays behind a check,
+        // since three of the five steps write no notes at all.
+        expect(startScript).toMatch(/\[ "\$SUBCOMMAND" = "export" \]; then\s*\n\s*echo "Exported files are in:/);
     });
 
     it('defaults OUTPUT_DIR to ./output, where the README says notes land', () => {

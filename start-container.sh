@@ -33,23 +33,46 @@ OUTPUT_DIR="${OUTPUT_DIR:-./output}"
 # simply follows it and no copy is needed.
 # Which session to use, in order of preference:
 #
-#   1. $AUTH_FILE, if the caller set it
-#   2. ./output/auth.json, the convention the README documents - the session sits
+#   1. --auth-file <path>, if the caller passed it on the command line
+#   2. $AUTH_FILE, if the caller set it in the environment
+#   3. ./output/auth.json, the convention the README documents - the session sits
 #      beside the notes in the one mounted volume, so there is nothing else to
 #      mount and no copy step on every run
-#   3. ~/.microsoft-webauth/auth-file.json, where `login` writes it, so the
+#   4. ~/.microsoft-webauth/auth-file.json, where `login` writes it, so the
 #      "log in on the host, then run this" sequence works with no preparation
 #
-# The default is NOT just (3): a check for (2) has to come first, because with the
-# default set to (3) the script looks for a file named `auth-file.json` in the
+# (1) exists because the flag was silently ignored. This script picks the session
+# itself and passes its own --auth-file to the container, so an
+# `--auth-file ./my.json` from the caller was neither honoured nor rejected - the
+# wrong session was used and the run succeeded against it. Found by passing the
+# flag, watching a *different* file get deleted, and reading the code to see why.
+#
+# The default is NOT just (4): a check for (3) has to come first, because with the
+# default set to (4) the script looks for a file named `auth-file.json` in the
 # output directory and silently ignores the `auth.json` a user following the
 # README actually placed there.
-if [ -z "${AUTH_FILE:-}" ]; then
-    if [ -f "${OUTPUT_DIR}/auth.json" ]; then
-        AUTH_FILE="${OUTPUT_DIR}/auth.json"
-    else
-        AUTH_FILE="$HOME/.microsoft-webauth/auth-file.json"
+AUTH_FILE_FROM_ARGS=""
+prev=""
+for arg in "$@"; do
+    if [ "$prev" = "--auth-file" ]; then
+        AUTH_FILE_FROM_ARGS="$arg"
     fi
+    case "$arg" in
+        --auth-file=*)
+            AUTH_FILE_FROM_ARGS="${arg#--auth-file=}"
+            ;;
+    esac
+    prev="$arg"
+done
+
+if [ -n "$AUTH_FILE_FROM_ARGS" ]; then
+    AUTH_FILE="$AUTH_FILE_FROM_ARGS"
+elif [ -n "${AUTH_FILE:-}" ]; then
+    AUTH_FILE="$AUTH_FILE"
+elif [ -f "${OUTPUT_DIR}/auth.json" ]; then
+    AUTH_FILE="${OUTPUT_DIR}/auth.json"
+else
+    AUTH_FILE="$HOME/.microsoft-webauth/auth-file.json"
 fi
 
 # The subcommand, when the caller did not give one.
@@ -73,7 +96,7 @@ case "$SUBCOMMAND" in
         ;;
 esac
 
-if [ $# -eq 0 ] && [ "$SUBCOMMAND" = "export" ]; then
+if [ "$SUBCOMMAND" = "export" ] && [ $# -eq 0 ]; then
     echo "Usage: $0 [--export] --notebook <name> | --notebook-link <url> [options...]" >&2
     echo "" >&2
     echo "Example:" >&2
@@ -81,11 +104,6 @@ if [ $# -eq 0 ] && [ "$SUBCOMMAND" = "export" ]; then
     echo "" >&2
     echo "Or name the step explicitly:" >&2
     echo "  $0 list          $0 check" >&2
-    exit 1
-fi
-
-if [ $# -eq 0 ]; then
-    echo "Usage: $0 <$SUBCOMMAND> [options...]" >&2
     exit 1
 fi
 
@@ -107,6 +125,41 @@ if [ "$SUBCOMMAND" = "export" ]; then
         echo "  to fall back on." >&2
         exit 2
     fi
+fi
+
+# logout does not need a container.
+#
+# The obvious approach - mount the session read-write and let the container delete
+# it - cannot work. Docker mounts a single file at /data/auth/session.json, and a
+# container cannot remove a mount point: the file is the mount, so unlinking it
+# fails with EACCES whether the mount is read-only or not. Making it writable
+# changed nothing except how far the error got.
+#
+# Deleting the session is a host-side operation - one file plus its -meta.json -
+# and there is nothing for the container to do. So it is done here, before any
+# image is required, which also means `./start-container.sh logout` works before
+# the image has ever been built.
+if [ "$SUBCOMMAND" = "logout" ]; then
+    if [ ! -f "$AUTH_FILE" ]; then
+        echo "ERROR: no auth file at $AUTH_FILE" >&2
+        echo "  Nothing to sign out of; the file is already gone." >&2
+        exit 1
+    fi
+
+    echo "Removing $AUTH_FILE"
+    rm -f "$AUTH_FILE"
+
+    # webauth writes the metadata beside the session as <name>-meta.json, and
+    # logout removes both. Leaving it behind would leave a record of the account
+    # with no session to go with it.
+    META_FILE="${AUTH_FILE%.json}-meta.json"
+    if [ -f "$META_FILE" ]; then
+        echo "Removing $META_FILE"
+        rm -f "$META_FILE"
+    fi
+
+    echo "logout finished."
+    exit 0
 fi
 
 # The container name is derived from the working directory, so it is stable across
@@ -276,14 +329,25 @@ wait "$WATCHDOG_PID" 2>/dev/null || true
 
 echo ""
 if [ "$EXIT_CODE" -eq 0 ]; then
-    echo "Exported files are in: $OUTPUT_DIR_ABS"
+    if [ "$SUBCOMMAND" = "export" ]; then
+        echo "Exported files are in: $OUTPUT_DIR_ABS"
+    else
+        echo "$SUBCOMMAND finished."
+    fi
 else
+    # The messages name the subcommand rather than always saying "the export": a
+    # failed logout reporting "the export failed and produced nothing usable"
+    # sends you looking for notes that were never the point of the command.
     case "$EXIT_CODE" in
         1)
-            echo "WARNING: the export failed and produced nothing usable." >&2
+            echo "WARNING: $SUBCOMMAND failed." >&2
             ;;
         2)
-            echo "WARNING: the arguments were wrong - check --notebook or --notebook-link." >&2
+            if [ "$SUBCOMMAND" = "export" ]; then
+                echo "WARNING: the arguments were wrong - check --notebook or --notebook-link." >&2
+            else
+                echo "WARNING: the arguments were wrong." >&2
+            fi
             ;;
         3)
             echo "NOTE: the export finished but some pages, sections or groups are missing." >&2
@@ -294,8 +358,12 @@ else
             echo "WARNING: the container exited with status $EXIT_CODE." >&2
             ;;
     esac
-    echo "Anything already written to $OUTPUT_DIR_ABS has been kept." >&2
-    echo "See logs/app.log inside the output directory for the full run." >&2
+    if [ "$SUBCOMMAND" = "export" ]; then
+        echo "Anything already written to $OUTPUT_DIR_ABS has been kept." >&2
+        echo "See logs/app.log inside the output directory for the full run." >&2
+    else
+        echo "See logs/app.log inside the output directory for the full run." >&2
+    fi
 fi
 
 exit "$EXIT_CODE"

@@ -33,7 +33,11 @@ updates:
       # so one PR covering all of them is easier to review than three that each
       # break the build on its own. A group is only opened when at least two
       # members have an update.
-      @msout-steps:
+      #
+      # The name is quoted because "@" is a reserved indicator in YAML: unquoted,
+      # this file fails to parse at all, and GitHub reports it only as "a workflow
+      # file issue" with no line number.
+      "@msout-steps":
         patterns:
           - "@msout/*"
         update-types:

@@ -134,8 +134,8 @@ jobs:
               const pinned = pkg.dependencies[name];
               const found = outdated[name];
               if (!found) continue;
-              lines.push(\`  \${name}
-      pinned \${pinned}, published \${found.latest}\`);
+              lines.push('  ' + name);
+              lines.push('      pinned ' + pinned + ', published ' + found.latest);
             }
 
             if (!lines.length) {

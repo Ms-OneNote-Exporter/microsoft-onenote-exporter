@@ -60,6 +60,18 @@ jobs:
 
       # npm tarballs are immutable and public forever, so the contents are
       # checked before they leave. Belt-and-braces with test/publish.test.js.
+      #
+      # entrypoint.sh and start-container.sh used to be listed here as
+      # development files, from when they were not published. That was right then
+      # and wrong now: 0.1.2 publishes both, because the README's Docker section
+      # is built on them. Left as it was, this gate refused the 0.1.2 release:
+      #
+      #   Refusing to publish, development files in tarball: [ 'entrypoint.sh', 'start-container.sh' ]
+      #
+      # A gate that blocks its own release is worse than no gate, so they are
+      # now required rather than forbidden - asserted at the top level, because a
+      # consumer who installed the package and wants to build the image has no
+      # use for a tarball without them.
       - name: Verify the tarball is what a consumer expects
         run: |
           PACK_JSON="$(mktemp)"
@@ -67,12 +79,20 @@ jobs:
           node -e "
             const fs = require('fs');
             const files = JSON.parse(fs.readFileSync('$PACK_JSON', 'utf8'))[0].files.map(f => f.path);
+
+            const required = ['entrypoint.sh', 'start-container.sh'];
+            const missing = required.filter(f => !files.includes(f));
+            if (missing.length) {
+              console.error('Refusing to publish, the tarball is missing:', missing);
+              process.exit(1);
+            }
+
             const leaked = files.filter(f =>
               /(^|\/)tests?\//.test(f) ||
               /^\.github\//.test(f) ||
-              /(^|\/)(Dockerfile|compose\.ya?ml|start-container\.sh|entrypoint\.sh|\.dockerignore|jest\.config\.js|eslint\.config\.js)$/.test(f) ||
+              /(^|\/)(Dockerfile|compose\.ya?ml|\.dockerignore|jest\.config\.js|eslint\.config\.js)$/.test(f) ||
               /auth.*\.json\$/i.test(f) ||
-              /(^|\/)(logs?|output|dumps?|coverage|scripts)(\/|\$)/i.test(f) ||
+              /(^|\/)(logs?|output|dumps?|coverage|docker-output|scripts)(\/|\$)/i.test(f) ||
               /\.tgz\$/.test(f)
             );
             if (leaked.length) {

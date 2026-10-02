@@ -111,6 +111,16 @@ jobs:
           node-version: '24'
           package-manager-cache: false
 
+      # Needed for the playwright check below, which reads the version npm
+      # actually resolved. Without it node_modules does not exist and that step
+      # fails with MODULE_NOT_FOUND - which reads like a broken override rather
+      # than a missing install.
+      #
+      # The report step does not need this and runs first, deliberately: if the
+      # install ever breaks, the drift report is still on the log.
+      - name: Install dependencies
+        run: npm ci
+
       - name: Report newer step packages without failing the build
         run: |
           set +e

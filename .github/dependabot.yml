@@ -1,0 +1,79 @@
+# Dependabot on this repository only.
+#
+# Why here and not in the three sibling repositories: this is the only one whose
+# dependencies are the other three. Each sibling depends on nothing but npm
+# itself, so a version update PR in one of them would be noise.
+#
+# What this catches: a new @msout/* release. Those are published by hand, from a
+# tag, one repo at a time - so nothing in this repository could otherwise notice
+# that a step it drives has moved on. The pins in package.json are exact on
+# purpose (see below), which means they never move by themselves; without this,
+# a stale pin is invisible until something breaks.
+
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      # Off the top of the hour. Every repo in the set runs on the same clock, and
+      # GitHub queues scheduled jobs at the start of each hour - so an unstated
+      # time puts four workflows in the same queue and they run together.
+      time: "07:00"
+      timezone: Europe/Paris
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "deps"
+    groups:
+      # The three steps move together in practice - they are released as a set -
+      # so one PR covering all of them is easier to review than three that each
+      # break the build on its own. A group is only opened when at least two
+      # members have an update.
+      #
+      # The name is quoted because "@" is a reserved indicator in YAML: unquoted,
+      # this file fails to parse at all, and GitHub reports it only as "a workflow
+      # file issue" with no line number.
+      "@msout-steps":
+        patterns:
+          - "@msout/*"
+        update-types:
+          - minor
+          - patch
+
+  # Transitive updates, kept separate from the step packages above.
+  #
+  # The umbrella's value is that all three steps share one Playwright and one
+  # Chromium, and `overrides` in package.json is what guarantees it. A transitive
+  # PR can touch that indirectly - playwright's own dependencies move - so these
+  # get a weekly group and CI decides whether the override still holds, via
+  # test/wiring.test.js, which fails if more than one playwright is installed.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:15"
+      timezone: Europe/Paris
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "deps"
+    groups:
+      # One PR for the whole indirect tree rather than dozens. These are large
+      # when they move and uninteresting individually; what matters is whether the
+      # combination still passes, which is one CI run either way.
+      transitive:
+        patterns:
+          - "*"
+    ignore:
+      # Our own packages. They are direct dependencies with exact pins, handled by
+      # the @msout-steps group above; appearing again here would double every
+      # step release.
+      - dependency-name: "@msout/microsoft-webauth"
+      - dependency-name: "@msout/microsoft-onenote-list-notebooks"
+      - dependency-name: "@msout/microsoft-onenote-export-notebook"
